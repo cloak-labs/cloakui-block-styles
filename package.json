@@ -1,0 +1,57 @@
+{
+  "name": "@cloakui/block-styles",
+  "version": "0.1.0",
+  "description": "CMS-independent, extensible styling for structured content.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cloak-labs/cloakui-block-styles.git"
+  },
+  "homepage": "https://github.com/cloak-labs/cloakui-block-styles#readme",
+  "bugs": {
+    "url": "https://github.com/cloak-labs/cloakui-block-styles/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "LICENSE-GPL",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./block-renderer": {
+      "types": "./dist/block-renderer.d.ts",
+      "import": "./dist/block-renderer.js",
+      "require": "./dist/block-renderer.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@cloakui/block-renderer": "workspace:*",
+    "@types/node": "^18.19.130",
+    "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "@cloakui/block-renderer": ">=0.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@cloakui/block-renderer": {
+      "optional": true
+    }
+  },
+  "license": "LGPL-3.0-only",
+  "publishConfig": {
+    "access": "public"
+  }
+}
