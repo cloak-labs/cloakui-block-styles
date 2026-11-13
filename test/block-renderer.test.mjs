@@ -23,11 +23,11 @@ test("optional renderer plugin composes hooks and collects each render's CSS", (
   const first = renderer.render([{ name: "example", styles: { color: "red" } }]);
   assert.equal(first.rendered[0].existing, true);
   assert.equal(first.rendered[0].marked, true);
-  assert.equal(first.rendered[0].variables["--cui-color"], "red");
-  assert.match(first.css, /cui-color/);
+  assert.equal(first.rendered[0].variables["--cms-fg"], "red");
+  assert.match(first.css, /cms-fg/);
   const second = renderer.render([{ name: "example", styles: { "text-align": "center" } }]);
-  assert.match(second.css, /cui-text-align/);
-  assert.doesNotMatch(second.css, /cui-color/);
+  assert.match(second.css, /cms-align/);
+  assert.doesNotMatch(second.css, /cms-fg/);
   renderer.setMeta({ styles: null });
   assert.equal(Array.isArray(renderer.render([{ name: "example" }])), true);
 });

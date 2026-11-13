@@ -1,3 +1,4 @@
+import { defaultPropertyTokens, spacingPropertyGroups } from "./tokens.js";
 import { defaultStyleProperties, isSafeStyleValue } from "./properties.js";
 import type {
   Breakpoint,
@@ -14,6 +15,7 @@ import type {
 } from "./types.js";
 
 export * from "./types.js";
+export { defaultPropertyTokens, spacingPropertyGroups } from "./tokens.js";
 export { defaultStyleProperties, isSafeStyleValue } from "./properties.js";
 
 /** Mirrors @cloakui/responsive's mobile-first breakpoint names and Tailwind modifiers. */
@@ -100,6 +102,8 @@ export function createBlockStyleEngine<K extends string = StandardBreakpoint>(
     properties?: Record<string, StyleProperty>;
     modules?: readonly StyleModule<K>[];
     defaults?: StyleInput<K>;
+    /** Prefix used for generated classes and custom properties (default: cms). */
+    prefix?: string;
     resolve?: (styles: StyleInput<K>, context: unknown) => StyleInput<K>;
     /** Values guaranteed by the consumer's CSS for this context, without an engine rule. */
     cssDefaults?:
@@ -107,8 +111,13 @@ export function createBlockStyleEngine<K extends string = StandardBreakpoint>(
       | ((context: unknown) => Record<string, StyleScalar>);
     /** Use class specificity when integrating with existing unlayered utilities. */
     specificity?: "low" | "class" | "strong";
+    /** Disallow combining properties that belong to different component slots. */
+    canCombine?: (properties: readonly string[], context: unknown) => boolean;
   } = {},
 ) {
+  const prefix = options.prefix ?? "cms";
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(prefix) || prefix.includes("--") || prefix.endsWith("-"))
+    throw new Error(`Invalid block style prefix: ${prefix}`);
   const breakpoints =
     options.breakpoints ?? (defaultBreakpoints as unknown as Breakpoint<K>[]);
   const modules = options.modules ?? [];
@@ -140,13 +149,44 @@ export function createBlockStyleEngine<K extends string = StandardBreakpoint>(
     if (
       !IDENTIFIER.test(name) ||
       name.includes("--") ||
-      !PROPERTY.test(definition.css) ||
+      !(Array.isArray(definition.css)
+        ? definition.css.length > 0 &&
+          definition.css.every((css) => PROPERTY.test(css))
+        : PROPERTY.test(definition.css as string)) ||
       (definition.selector !== undefined &&
         (!SELECTOR.test(definition.selector) ||
           (definition.selector.match(/&/g) ?? []).length !== 1))
     )
       throw new Error(`Invalid style property: ${name}`);
   }
+
+  // A project may register a property whose name is a built-in abbreviation.
+  // In that case keep the built-in's full name so neither capability collides.
+  const names = Object.keys(properties);
+  const proposed = Object.fromEntries(
+    names.map((name) => [
+      name,
+      Object.prototype.hasOwnProperty.call(defaultPropertyTokens, name)
+        ? defaultPropertyTokens[name]
+        : name,
+    ]),
+  );
+  const counts = new Map<string, number>();
+  for (const token of Object.values(proposed))
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  const propertyTokens = Object.fromEntries(
+    names.map((name) => {
+      const short = proposed[name];
+      return [
+        name,
+        short !== name &&
+        (Object.prototype.hasOwnProperty.call(properties, short) ||
+          counts.get(short)! > 1)
+          ? name
+          : short,
+      ];
+    }),
+  );
 
   const buildOutput = (
     values: StyleInput<K>,
@@ -156,6 +196,7 @@ export function createBlockStyleEngine<K extends string = StandardBreakpoint>(
     const output: StyleOutput = {
       classes: [],
       variables: {},
+      classProperties: {},
       rules: {},
       diagnostics: [],
     };
@@ -191,7 +232,7 @@ export function createBlockStyleEngine<K extends string = StandardBreakpoint>(
       const breakpointIndex = breakpoint ? breakpoints.indexOf(breakpoint) : -1;
       const stateIndex = state ? STATES.indexOf(state) : -1;
       const suffix = [breakpoint?.name, state].filter(Boolean).join("--");
-      const token = `cui-${property}${suffix ? `--${suffix}` : ""}`;
+      const token = `${prefix}-${propertyTokens[property]}${suffix ? `--${suffix}` : ""}`;
       const variable = `--${token}`;
       const host =
         options.specificity === "strong"
@@ -201,15 +242,20 @@ export function createBlockStyleEngine<K extends string = StandardBreakpoint>(
             : `:where(.${token}${state ? `:${state}` : ""})`;
       const target = (definition.selector ?? "&").replace("&", host);
       const selector = target;
-      const rule = `${selector}{${definition.css}:var(${variable})}`;
+      const cssProperties =
+        typeof definition.css === "string" ? [definition.css] : definition.css;
+      const rule = `${selector}{${cssProperties.map((css) => `${css}:var(${variable})`).join(";")}}`;
       // Keep interaction precedence across both base and responsive rules.
       const rank = state
         ? 2 + stateIndex * 2 + (breakpoint ? 1 : 0)
         : breakpoint
           ? 1
           : 0;
-      const key = `${rank}:${String(breakpointIndex + 1).padStart(4, "0")}:${stateIndex + 1}:${property}`;
+      // At equal precedence, emit the shorthand before either longhand.
+      const order = definition.css === "gap" ? `!${property}` : property;
+      const key = `${rank}:${String(breakpointIndex + 1).padStart(4, "0")}:${stateIndex + 1}:${order}`;
       output.classes.push(token);
+      output.classProperties[token] = property;
       output.variables[variable] = text;
       output.rules[key] = breakpoint?.query
         ? `@media ${breakpoint.query}{${rule}}`
@@ -273,7 +319,84 @@ export function createBlockStyleEngine<K extends string = StandardBreakpoint>(
         typeof options.cssDefaults === "function"
           ? options.cssDefaults(context)
           : options.cssDefaults;
-      return buildOutput(values, false, cssDefaults);
+      const combined = { ...values };
+      // Only combine identical complete value objects. This retains breakpoint,
+      // state, and validation semantics without inferring CSS equivalence.
+      for (const [name, sides] of Object.entries(spacingPropertyGroups)) {
+        if (
+          combined[name] != null ||
+          sides.some((side) => combined[side] == null)
+        )
+          continue;
+        if (
+          Object.keys(spacingPropertyGroups).some(
+            (other) =>
+              other !== name &&
+              combined[other] != null &&
+              spacingPropertyGroups[other].some((side) => sides.includes(side)),
+          )
+        )
+          continue;
+        const target = properties[name];
+        if (
+          target !== defaultStyleProperties[name] ||
+          sides.some(
+            (side) =>
+              properties[side] !== defaultStyleProperties[side] ||
+              properties[side].selector ||
+              properties[side].validate,
+          )
+        )
+          continue;
+        if (
+          sides.some((side) =>
+            Object.prototype.hasOwnProperty.call(cssDefaults ?? {}, side),
+          )
+        )
+          continue;
+        if (options.canCombine && !options.canCombine(sides, context)) continue;
+        const first = combined[sides[0]];
+        const serialized = JSON.stringify(first);
+        if (
+          !sides.every((side) => JSON.stringify(combined[side]) === serialized)
+        )
+          continue;
+        // Leave invalid values and unknown breakpoints/states untouched so
+        // diagnostics retain the original property names.
+        const safe = (value: unknown): boolean => {
+          if (typeof value === "string" || typeof value === "number")
+            return isSafeStyleValue(String(value).trim());
+          if (!value || typeof value !== "object" || Array.isArray(value))
+            return false;
+          return Object.entries(value).every(([key, child]) => {
+            if (key === "base") return child === undefined || safe(child);
+            if (key === "breakpoints")
+              return (
+                !!child &&
+                typeof child === "object" &&
+                !Array.isArray(child) &&
+                Object.entries(child).every(
+                  ([bp, item]) => seen.has(bp) && safe(item),
+                )
+              );
+            if (key === "states")
+              return (
+                !!child &&
+                typeof child === "object" &&
+                !Array.isArray(child) &&
+                Object.entries(child).every(
+                  ([state, item]) =>
+                    STATES.includes(state as StyleState) && safe(item),
+                )
+              );
+            return false;
+          });
+        };
+        if (!safe(first)) continue;
+        for (const side of sides) delete combined[side];
+        combined[name] = first;
+      }
+      return buildOutput(combined, false, cssDefaults);
     },
     /** Static, value-free capability rules for stylesheet build tools. */
     catalog(): StyleOutput {

@@ -30,23 +30,34 @@
       "types": "./dist/block-renderer.d.ts",
       "import": "./dist/block-renderer.js",
       "require": "./dist/block-renderer.js"
+    },
+    "./tailwind-merge": {
+      "types": "./dist/tailwind-merge.d.ts",
+      "import": "./dist/tailwind-merge.js",
+      "require": "./dist/tailwind-merge.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",
+    "test:pack": "npm run build && node test/pack-smoke.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "@cloakui/block-renderer": "workspace:*",
     "@types/node": "^18.19.130",
+    "tailwind-merge": "^2.6.0",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
-    "@cloakui/block-renderer": ">=0.4.0"
+    "@cloakui/block-renderer": ">=0.4.0",
+    "tailwind-merge": ">=2.6.0 <3"
   },
   "peerDependenciesMeta": {
     "@cloakui/block-renderer": {
+      "optional": true
+    },
+    "tailwind-merge": {
       "optional": true
     }
   },

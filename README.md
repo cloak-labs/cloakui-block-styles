@@ -17,6 +17,9 @@ project can customize the default properties, values, breakpoints, and output.
 > currently supplies the renderer through a `workspace:*` development
 > dependency. Publishing both packages and updating the dependency versions are
 > required before a standalone npm installation or clone is supported.
+> The packed core and optional entry points can be smoke-tested in an isolated
+> offline installation with `pnpm test:pack`. This does not establish that the
+> unreleased renderer hook is available on npm.
 
 ## How it works
 
@@ -26,10 +29,40 @@ project can customize the default properties, values, breakpoints, and output.
 4. The application emits the returned reusable CSS rules once for the page, or
    selects them into an external stylesheet.
 
-For example, `text-align: center` produces the class `cui-text-align`, the
-custom property `--cui-text-align: center`, and a reusable rule that reads the
+For example, `text-align: center` produces the class `cms-align`, the
+custom property `--cms-align: center`, and a reusable rule that reads the
 property. The value is attached to the individual element, while the rule can
 be shared with other elements and deduplicated.
+
+Common properties use compact tokens, for example `margin-top` becomes
+`cms-mt`, `gap` becomes `cms-gap`, `column-gap` becomes `cms-gap-x`,
+`row-gap` becomes `cms-gap-y`, and `border-top-left-radius` becomes `cms-rad-tl`.
+Other properties retain their full name. If a registered property name would
+collide with an abbreviation, the affected property uses its full name instead;
+the mapping is deterministic for a given engine configuration. The `cms`
+prefix is a naming convention and does not require a CMS.
+
+Pass `prefix` to change the namespace for classes and matching variables,
+including responsive and interaction rules:
+
+```ts
+const engine = createBlockStyleEngine({ prefix: 'wp' });
+// text-align: center => class `wp-align`, variable `--wp-align: center`
+```
+
+Prefixes start with an ASCII letter and contain only letters, digits,
+underscores or single hyphens; they cannot end in `-` or contain `--`. Use the
+same configuration for rendering, stylesheet compilation and preview, and choose
+a namespace that doesn't collide with existing site classes or variables.
+
+Equal physical margin or padding sides are combined into `cms-my`, `cms-mx`,
+`cms-m`, `cms-py`, `cms-px`, or `cms-p` with one variable. A grouped rule
+sets the original physical sides explicitly, so writing mode does not change
+their meaning. Complete responsive and interaction definitions must match;
+otherwise the engine preserves the individual sides. Grouping also preserves
+per-property CSS defaults, custom property definitions, and diagnostics.
+Consumers that send different sides to different component slots can provide
+`canCombine(properties, context)` to prevent incompatible grouping.
 
 ## Quick start
 
@@ -60,6 +93,7 @@ const css = compileBlockStyleRules([heading]);
 | --- | --- |
 | `classes` | Class names to attach to the styled element. |
 | `variables` | CSS custom properties containing its values. |
+| `classProperties` | Maps each generated class to its original semantic property. |
 | `rules` | Keyed, value-free CSS capability rules. |
 | `diagnostics` | Unknown properties, breakpoints or states, and invalid values. |
 
@@ -148,7 +182,7 @@ const engine = createBlockStyleEngine({
   cssDefaults: { 'text-align': 'center' },
 });
 engine.render({ 'text-align': 'center' }).classes; // []
-engine.render({ 'text-align': 'left' }).classes;   // ['cui-text-align']
+engine.render({ 'text-align': 'left' }).classes;   // ['cms-align']
 ```
 
 Do not assume browser defaults represent your component's cascade: an explicit
@@ -262,6 +296,39 @@ A CMS adapter is responsible for normalizing attributes, diagnostics, choosing
 which blocks support the integration, and deciding which component slot receives
 styles. Plugin `prepare` may annotate a block before its data router runs.
 
+## Optional Tailwind class merging
+
+For Tailwind CSS 3 and tailwind-merge 2, the optional `tailwind-merge` entry
+point adds the standard, unconditional CMS classes to their corresponding
+Tailwind conflict groups:
+
+```ts
+import { extendTailwindMerge } from 'tailwind-merge';
+import { withBlockStyles } from '@cloakui/block-styles/tailwind-merge';
+
+const cx = extendTailwindMerge(withBlockStyles);
+cx('gap-y-2.5 cms-gap-y'); // 'cms-gap-y'
+cx('cms-gap-y gap-y-2.5'); // 'gap-y-2.5'
+cx('p-6 cms-pt');          // both remain: the other padding sides still matter
+```
+
+The adapter has no runtime dependency on tailwind-merge and is not imported by
+the core engine. For an engine with a custom prefix, property names, or definitions, use
+`createBlockStylesTailwindMergePlugin(engine.catalog())` instead of the default
+plugin so collisions and modified properties are handled conservatively.
+
+```ts
+const cx = extendTailwindMerge(createBlockStylesTailwindMergePlugin(engine.catalog()));
+cx('text-left wp-align'); // 'wp-align'
+```
+CMS breakpoint and state suffixes are deliberately not merged with Tailwind
+variants: their conditions may not match. CSS specificity and source order
+still decide overlapping variants; this adapter does not guarantee override
+precedence between different media or interaction scopes. For partial shorthand
+conflicts such as `cms-gap gap-y-8`, tailwind-merge retains both classes to
+preserve the column gap. The CSS cascade still decides the row gap, so later
+class order alone does not guarantee that the Tailwind rule wins.
+
 ## Validation and deployment considerations
 
 Property names and CSS declarations come from trusted engine configuration.
@@ -271,6 +338,28 @@ URL forms. `isSafeStyleValue` is an output-safety guard, **not** a full CSS
 parser or a substitute for application-specific validation. Invalid or unknown
 input is omitted and reported in `diagnostics`; consumers should surface those
 diagnostics during development.
+
+For WordPress, `cloakwp/block-styles` adapts saved block attributes into this
+engine. Its `render` result also reports unsupported saved style attributes and
+unresolved preset tokens. By default an unresolved preset is retained as a
+`var(--wp--preset--...)` reference **and** reported; configure `resolvePreset`
+to map it to a frontend-owned value. Set `unresolvedPreset: 'allow'` only when
+the site deliberately supplies WordPress preset variables. WordPress custom CSS
+is reported as unsupported instead of being silently treated as applied.
+
+The WordPress adapter accepts the core engine's property extensions and
+resolvers, so a project can add its own capability without changing this package:
+
+```ts
+import { createWordPressBlockStyleEngine } from 'cloakwp/block-styles';
+
+const wordpressStyles = createWordPressBlockStyleEngine({
+  properties: { tracking: { css: 'letter-spacing' } },
+  resolve: (styles, block) => (block as { name?: string })?.name === 'core/heading'
+    ? { ...styles, tracking: '0.02em' }
+    : styles,
+});
+```
 
 Values are normally placed in inline CSS custom properties. A strict Content
 Security Policy may require a different value-emission strategy. Content and

@@ -1,3 +1,4 @@
+import { spacingPropertyGroups } from "./tokens.js";
 /** Explicit property allowlist: arbitrary CSS and URLs are not style values. */
 export const defaultStyleProperties = Object.fromEntries([
     "text-align",
@@ -47,6 +48,7 @@ export const defaultStyleProperties = Object.fromEntries([
     "margin-right",
     "margin-bottom",
     "margin-left",
+    "gap",
     "row-gap",
     "column-gap",
     "width",
@@ -91,6 +93,8 @@ defaultStyleProperties["link-active-color"] = {
     css: "color",
     selector: "& a:active",
 };
+for (const [name, sides] of Object.entries(spacingPropertyGroups))
+    defaultStyleProperties[name] = { css: sides };
 /** Reject stylesheet-breaking data even for explicitly added properties. */
 export function isSafeStyleValue(value) {
     if (!value.length ||

@@ -1,5 +1,6 @@
 import type { Breakpoint, ResponsiveValue, StandardBreakpoint, StyleInput, StyleModule, StyleOutput, StyleProperty, StyleScalar, StyleValue } from "./types.js";
 export * from "./types.js";
+export { defaultPropertyTokens, spacingPropertyGroups } from "./tokens.js";
 export { defaultStyleProperties, isSafeStyleValue } from "./properties.js";
 /** Mirrors @cloakui/responsive's mobile-first breakpoint names and Tailwind modifiers. */
 export declare const defaultBreakpoints: Breakpoint<StandardBreakpoint>[];
@@ -12,11 +13,15 @@ export declare function createBlockStyleEngine<K extends string = StandardBreakp
     properties?: Record<string, StyleProperty>;
     modules?: readonly StyleModule<K>[];
     defaults?: StyleInput<K>;
+    /** Prefix used for generated classes and custom properties (default: cms). */
+    prefix?: string;
     resolve?: (styles: StyleInput<K>, context: unknown) => StyleInput<K>;
     /** Values guaranteed by the consumer's CSS for this context, without an engine rule. */
     cssDefaults?: Record<string, StyleScalar> | ((context: unknown) => Record<string, StyleScalar>);
     /** Use class specificity when integrating with existing unlayered utilities. */
     specificity?: "low" | "class" | "strong";
+    /** Disallow combining properties that belong to different component slots. */
+    canCombine?: (properties: readonly string[], context: unknown) => boolean;
 }): {
     render(input: StyleInput<K>, context?: unknown): StyleOutput;
     /** Static, value-free capability rules for stylesheet build tools. */

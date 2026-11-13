@@ -21,7 +21,7 @@ export type Breakpoint<K extends string = string> = {
 };
 export type StyleProperty = {
     /** CSS property to set. CSS variables, shorthands and custom properties are opt-in. */
-    css: string;
+    css: string | readonly string[];
     /** Trusted selector with exactly one & representing the styled block. */
     selector?: string;
     validate?: (value: string) => boolean;
@@ -42,6 +42,8 @@ export type StyleDiagnostic<AdditionalReason extends string = never> = {
 export type StyleOutput<AdditionalReason extends string = never> = {
     classes: string[];
     variables: Record<string, string>;
+    /** Semantic property for each class; independent of its abbreviated token. */
+    classProperties: Record<string, string>;
     /** Each key identifies a reusable CSS capability, not a content value. */
     rules: Record<string, string>;
     diagnostics: StyleDiagnostic<AdditionalReason>[];
